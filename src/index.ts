@@ -1,8 +1,10 @@
+import { CaptureUpdateAction } from "@excalidraw/excalidraw";
 import type {
   BinaryFileData,
   Collaborator,
   ExcalidrawImperativeAPI,
-} from "@excalidraw/excalidraw/types/types";
+  SocketId,
+} from "@excalidraw/excalidraw/types";
 import type * as awarenessProtocol from "y-protocols/awareness";
 import * as Y from "yjs"
 import { areElementsSame, debounce, yjsToExcalidraw } from "./helpers";
@@ -17,7 +19,7 @@ export class ExcalidrawBinding {
   undoManager?: Y.UndoManager;
 
   subscriptions: (() => void)[] = [];
-  collaborators: Map<string, Collaborator> = new Map();
+  collaborators: Map<SocketId, Collaborator> = new Map();
   lastKnownElements: LastKnownOrderedElement[] = []
   lastKnownFileIds: Set<string> = new Set();
 
@@ -91,7 +93,7 @@ export class ExcalidrawBinding {
           const key2 = b.pos;
           return key1 > key2 ? 1 : (key1 < key2 ? -1 : 0)
         })
-      this.api.updateScene({ elements })
+      this.api.updateScene({ elements, captureUpdate: CaptureUpdateAction.NEVER })
     }
     this.yElements.observeDeep(_remoteElementsChangeHandler)
     this.subscriptions.push(() => this.yElements.unobserveDeep(_remoteElementsChangeHandler))
@@ -133,7 +135,7 @@ export class ExcalidrawBinding {
             continue;
           }
 
-          collaborators.set(id.toString(), {
+          collaborators.set(id.toString() as SocketId, {
             pointer: state.pointer,
             button: state.button,
             selectedElementIds: state.selectedElementIds,
@@ -144,10 +146,10 @@ export class ExcalidrawBinding {
           });
         }
         for (const id of removed) {
-          collaborators.delete(id.toString());
+          collaborators.delete(id.toString() as SocketId);
         }
-        collaborators.delete(this.awareness.clientID.toString());
-        this.api.updateScene({ collaborators });
+        collaborators.delete(this.awareness.clientID.toString() as SocketId);
+        this.api.updateScene({ collaborators, captureUpdate: CaptureUpdateAction.NEVER });
         this.collaborators = collaborators;
       };
       this.awareness.on("change", _remoteAwarenessChangeHandler);
@@ -168,8 +170,8 @@ export class ExcalidrawBinding {
         const key1 = a.pos;
         const key2 = b.pos;
         return key1 > key2 ? 1 : (key1 < key2 ? -1 : 0)
-      })    
-    this.api.updateScene({ elements: initialValue });
+      })
+    this.api.updateScene({ elements: initialValue, captureUpdate: CaptureUpdateAction.NEVER });
 
     // init assets
     this.api.addFiles(
@@ -177,21 +179,23 @@ export class ExcalidrawBinding {
     );
 
     // init collaborators
-    const collaborators = new Map()
-    for (let id of this.awareness.getStates().keys()) {
-      const state = this.awareness.getStates().get(id)
-      collaborators.set(id.toString(), {
-        pointer: state.pointer,
-        button: state.button,
-        selectedElementIds: state.selectedElementIds,
-        username: state.user?.name,
-        color: state.user?.color,
-        avatarUrl: state.user?.avatarUrl,
-        userState: state.user?.state,
-      });
+    if (this.awareness) {
+      const collaborators = new Map<SocketId, Collaborator>()
+      for (let id of this.awareness.getStates().keys()) {
+        const state = this.awareness.getStates().get(id)
+        collaborators.set(id.toString() as SocketId, {
+          pointer: state.pointer,
+          button: state.button,
+          selectedElementIds: state.selectedElementIds,
+          username: state.user?.name,
+          color: state.user?.color,
+          avatarUrl: state.user?.avatarUrl,
+          userState: state.user?.state,
+        });
+      }
+      this.api.updateScene({ collaborators, captureUpdate: CaptureUpdateAction.NEVER });
+      this.collaborators = collaborators;
     }
-    this.api.updateScene({ collaborators });
-    this.collaborators = collaborators;
   }
 
   public onPointerUpdate = (payload: {
